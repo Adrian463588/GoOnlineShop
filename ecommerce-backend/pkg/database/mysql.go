@@ -13,7 +13,7 @@ var DB *gorm.DB
 
 func Connect() {
 	// Configuration (In production, load from ENV)
-	dsn := "root:@tcp(127.0.0.1:3306)/evermos_db?charset=utf8mb4&parseTime=True&loc=Local"
+	dsn := "root:mysql@tcp(127.0.0.1:3306)/evermos_db?charset=utf8mb4&parseTime=True&loc=Local"
 
 	var err error
 	DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})

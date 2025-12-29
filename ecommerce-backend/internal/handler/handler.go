@@ -7,6 +7,7 @@ import (
 	"ecommerce-backend/pkg/utils"
 	"fmt"
 	"net/http"
+	"os" // Added os for directory check
 	"strconv"
 	"time"
 
@@ -26,7 +27,7 @@ func Register(c *gin.Context) {
 	user := models.User{
 		Name: input.Name, Phone: input.Phone, Email: input.Email, 
 		Password: hashedPwd, DOB: input.DOB, Job: input.Job, 
-		Gender: input.Gender, About: input.About, // New Fields
+		Gender: input.Gender, About: input.About, 
 		ProvinceID: input.ProvinceID, CityID: input.CityID,
 	}
 
@@ -318,7 +319,7 @@ func CreateProduct(c *gin.Context) {
 	userID := c.MustGet("user_id").(uint)
 	store, err := repository.GetStoreByUserID(userID)
 	if err != nil {
-		utils.APIResponse(c, http.StatusBadRequest, false, "User has no store", nil, nil)
+		utils.APIResponse(c, http.StatusBadRequest, false, "User has no store", nil, []string{"User must have a store"})
 		return
 	}
 
@@ -326,6 +327,12 @@ func CreateProduct(c *gin.Context) {
 	priceCons, _ := strconv.ParseFloat(c.PostForm("harga_konsumen"), 64)
 	stock, _ := strconv.Atoi(c.PostForm("stok"))
 	catID, _ := strconv.Atoi(c.PostForm("category_id"))
+
+	// Validation: Ensure valid Category ID is provided
+	if catID == 0 {
+		utils.APIResponse(c, http.StatusBadRequest, false, "Validation Failed", nil, []string{"category_id is required"})
+		return
+	}
 
 	product := models.Product{
 		Name:          c.PostForm("nama_produk"),
@@ -339,16 +346,36 @@ func CreateProduct(c *gin.Context) {
 	}
 
 	if err := repository.CreateProduct(&product); err != nil {
-		utils.APIResponse(c, http.StatusInternalServerError, false, "Error", nil, nil)
+		// Log the actual error for debugging
+		fmt.Println("Create Product Error:", err) 
+		utils.APIResponse(c, http.StatusInternalServerError, false, "Failed to create product in DB", nil, []string{err.Error()})
 		return
 	}
 
-	form, _ := c.MultipartForm()
-	files := form.File["photos"]
-	for _, file := range files {
-		filename := fmt.Sprintf("%d-%s", time.Now().Unix(), file.Filename)
-		c.SaveUploadedFile(file, "public/uploads/"+filename)
-		database.DB.Create(&models.ProductPhoto{ProductID: product.ID, URL: filename})
+	// Safely Handle Multiple Photos
+	form, err := c.MultipartForm()
+	if err == nil && form != nil { // Check if form exists
+		files := form.File["photos"]
+		
+		// 1. Ensure upload directory exists
+		uploadPath := "public/uploads"
+		if _, err := os.Stat(uploadPath); os.IsNotExist(err) {
+			os.MkdirAll(uploadPath, 0755)
+		}
+
+		// 2. Loop through files and save
+		for _, file := range files {
+			filename := fmt.Sprintf("%d-%s", time.Now().Unix(), file.Filename)
+			dst := fmt.Sprintf("%s/%s", uploadPath, filename)
+			
+			// Save the file
+			if err := c.SaveUploadedFile(file, dst); err == nil {
+				// Only save to DB if file save was successful
+				database.DB.Create(&models.ProductPhoto{ProductID: product.ID, URL: filename})
+			} else {
+				fmt.Println("Failed to save file:", err)
+			}
+		}
 	}
 
 	utils.APIResponse(c, http.StatusOK, true, "Succeed to POST data", product.ID, nil)
